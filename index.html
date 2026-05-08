@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta http-equiv="X-UA-Compatible" content="ie=edge">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' https:; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;">
+<title>泪与息 · 情绪疗愈</title>
+<script async src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script async src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+<script async src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@200;300;400&family=Cinzel:wght@300;400&display=swap');
+
+:root {
+  --bg: #ffffff;
+  --ink: #1a1a1a;
+  --dim: #999999;
+  --faint: #e8e8e8;
+  --mist: rgba(240,244,248,0.85);
+  --accent: rgba(26,26,26,0.08);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); font-family:'Noto Serif SC',serif; }
+
+#canvas { display:block; position:fixed; inset:0; width:100%; height:100%; }
+#camera-video { position:fixed; width:1px; height:1px; opacity:0; pointer-events:none; }
+#hand-canvas { position:fixed; inset:0; z-index:8; pointer-events:none; }
+
+/* ── MASTER UI ── */
+#ui { position:fixed; inset:0; z-index:10; pointer-events:none; }
+
+/* ── HEADER ── */
+#header {
+  position:fixed; top:0; left:0; right:0; z-index:11;
+  padding:22px 32px 18px;
+  display:flex; align-items:center; justify-content:space-between;
+  border-bottom:1px solid var(--faint);
+  background:rgba(255,255,255,0.92);
+  backdrop-filter:blur(8px);
+}
+.header-left { display:flex; flex-direction:column; gap:3px; }
+.header-title { font-size:1.1rem; font-weight:200; letter-spacing:0.4em; color:var(--ink); }
+.header-sub { font-size:0.52rem; letter-spacing:0.25em; color:var(--dim); }
+.header-right { display:flex; align-items:center; gap:16px; }
+
+/* ── ACT PROGRESS ── */
+.act-progress {
+  display:flex; gap:8px; align-items:center;
+}
+.act-node {
+  width:6px; height:6px; border-radius:50%;
+  background:var(--faint); border:1px solid var(--dim);
+  transition:all 0.4s; cursor:default;
+}
+.act-node.active { background:var(--ink); border-color:var(--ink); transform:scale(1.3); }
+.act-node.done { background:var(--dim); border-color:var(--dim); }
+.act-label { font-size:0.52rem; letter-spacing:0.2em; color:var(--dim); }
+
+/* ── SOUND BTN ── */
+.icon-btn {
+  width:36px; height:36px; border-radius:50%;
+  border:1px solid var(--faint);
+  background:transparent; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  transition:all 0.3s; pointer-events:all;
+}
+.icon-btn:hover { border-color:var(--ink); box-shadow:0 2px 8px rgba(0,0,0,0.08); }
+.icon-btn svg { width:14px; height:14px; fill:none; stroke:var(--ink); stroke-width:1.5; }
+.icon-btn.muted { opacity:0.4; }
+
+/* ── RIGHT SIDEBAR ── */
+#sidebar {
+  position:fixed; right:0; top:70px; bottom:0; width:200px; z-index:11;
+  background:rgba(255,255,255,0.92); backdrop-filter:blur(8px);
+  border-left:1px solid var(--faint);
+  padding:20px 16px; display:flex; flex-direction:column; gap:20px;
+  pointer-events:all; overflow:hidden;
+}
+
+.sidebar-section { display:flex; flex-direction:column; gap:8px; }
+.sidebar-label {
+  font-size:0.5rem; letter-spacing:0.25em; color:var(--dim);
+  text-transform:uppercase; padding-bottom:4px;
+  border-bottom:1px solid var(--faint);
+}
+
+/* Sliders */
+.slider-row { display:flex; flex-direction:column; gap:5px; }
+.slider-name { font-size:0.55rem; letter-spacing:0.15em; color:var(--ink); display:flex; justify-content:space-between; }
+input[type=range] {
+  width:100%; height:2px; background:var(--faint);
+  border-radius:2px; outline:none; -webkit-appearance:none; appearance:none; cursor:pointer;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance:none; appearance:none;
+  width:12px; height:12px; background:var(--ink); border-radius:50%; cursor:pointer;
+}
+input[type=range]::-moz-range-thumb {
+  width:12px; height:12px; background:var(--ink); border-radius:50%; border:none; cursor:pointer;
+}
+
+/* Camera preview */
+#cam-preview {
+  position:relative; width:168px; height:120px;
+  background:#000; border:1px solid var(--faint); border-radius:4px; overflow:hidden;
+  flex-shrink:0;
+}
+#cam-preview-video { width:100%; height:100%; object-fit:cover; transform:scaleX(-1); }
+.cam-status { position:absolute; bottom:6px; left:8px; font-size:0.45rem; letter-spacing:0.15em; color:rgba(255,255,255,0.6); }
+.cam-dot { display:inline-block; width:4px; height:4px; border-radius:50%; background:#888; margin-right:4px; }
+.cam-dot.live { background:#fff; animation:pulse 2s ease-in-out infinite; }
+
+/* Tear collector */
+#tear-collector {
+  flex:1; display:flex; flex-direction:column; gap:6px;
+  border:1px solid var(--faint); border-radius:4px; padding:10px; background:rgba(248,248,248,0.5);
+}
+.collector-vessel {
+  flex:1; border:1px solid var(--faint); border-radius:2px;
+  position:relative; overflow:hidden; background:#fff; min-height:60px;
+}
+.collector-fill {
+  position:absolute; bottom:0; left:0; right:0;
+  background:linear-gradient(to top, rgba(26,26,26,0.15), rgba(26,26,26,0.05));
+  transition:height 0.5s ease; height:0%;
+}
+.collector-drop {
+  position:absolute; width:100%; text-align:center;
+  font-size:0.55rem; letter-spacing:0.1em; color:var(--dim);
+  top:50%; transform:translateY(-50%);
+}
+.collector-count {
+  font-size:1.4rem; font-weight:200; color:var(--ink); text-align:center; letter-spacing:0.05em;
+}
+.collector-unit { font-size:0.45rem; letter-spacing:0.2em; color:var(--dim); text-align:center; }
+
+/* ── LEFT SIDEBAR ── */
+#left-panel {
+  position:fixed; left:0; top:70px; bottom:0; width:180px; z-index:11;
+  background:rgba(255,255,255,0.92); backdrop-filter:blur(8px);
+  border-right:1px solid var(--faint);
+  padding:20px 16px; display:flex; flex-direction:column; gap:16px;
+  pointer-events:all;
+}
+
+.hint-box {
+  border:1px solid var(--faint); border-radius:4px; padding:10px; background:rgba(248,248,248,0.5);
+}
+.hint-title { font-size:0.48rem; letter-spacing:0.2em; color:var(--dim); margin-bottom:8px; }
+.hint-item {
+  font-size:0.55rem; font-weight:200; line-height:1.8; color:var(--ink); letter-spacing:0.05em;
+  border-bottom:1px solid var(--faint); padding:5px 0;
+}
+.hint-item:last-child { border-bottom:none; }
+.hint-icon { font-size:0.7rem; margin-right:4px; }
+
+.quote-box {
+  border:1px solid var(--faint); border-radius:4px; padding:10px; background:rgba(248,248,248,0.5);
+  flex:1;
+}
+.quote-text {
+  font-size:0.6rem; font-weight:200; line-height:2; color:var(--ink);
+  letter-spacing:0.05em; font-style:italic;
+}
+.quote-src { font-size:0.45rem; letter-spacing:0.15em; color:var(--dim); margin-top:8px; text-align:right; }
+
+/* ── BOTTOM BAR ── */
+#bottom-bar {
+  position:fixed; bottom:0; left:0; right:0; z-index:11;
+  padding:14px 220px;
+  display:flex; align-items:center; justify-content:center; gap:20px;
+  background:rgba(255,255,255,0.92); backdrop-filter:blur(8px);
+  border-top:1px solid var(--faint);
+}
+
+.act-btn {
+  padding:10px 28px;
+  border:1.5px solid var(--ink);
+  border-radius:40px;
+  background:transparent; color:var(--ink);
+  font-family:'Noto Serif SC',serif; font-weight:200;
+  font-size:0.7rem; letter-spacing:0.2em;
+  cursor:pointer; transition:all 0.4s; pointer-events:all;
+}
+.act-btn:hover { background:var(--ink); color:#fff; box-shadow:0 4px 12px rgba(0,0,0,0.15); }
+.act-btn.primary { background:var(--ink); color:#fff; }
+.act-btn.primary:hover { background:#333; }
+
+.bottom-hint { font-size:0.55rem; letter-spacing:0.2em; color:var(--dim); }
+
+/* ── BREATH GUIDE (act3) ── */
+#breath-guide {
+  position:fixed; bottom:70px; left:50%; transform:translateX(-50%);
+  z-index:11; text-align:center; pointer-events:none;
+  display:none;
+}
+#breath-label {
+  font-size:0.8rem; font-weight:200; letter-spacing:0.4em;
+  color:rgba(255,255,255,0.8);
+  text-shadow:0 0 20px rgba(255,255,255,0.3);
+}
+#breath-timer {
+  font-size:0.55rem; letter-spacing:0.25em; color:rgba(255,255,255,0.45);
+  margin-top:6px;
+}
+
+/* ── FLOATING TEXT ── */
+.float-text {
+  position:fixed; z-index:14; pointer-events:none;
+  text-align:center; padding:8px 16px;
+  font-size:clamp(0.75rem, 1.8vw, 1rem);
+  font-weight:200; letter-spacing:0.2em; color:var(--ink);
+  border:1px solid rgba(26,26,26,0.15); border-radius:2px;
+  background:rgba(255,255,255,0.85);
+  backdrop-filter:blur(4px);
+  animation:floatUp 4.5s ease-out forwards;
+}
+.float-text.dark { color:rgba(255,255,255,0.8); border-color:rgba(255,255,255,0.15); background:rgba(0,0,0,0.4); }
+@keyframes floatUp {
+  0% { opacity:0; transform:translateY(10px); }
+  12% { opacity:1; }
+  80% { opacity:0.9; }
+  100% { opacity:0; transform:translateY(-30px); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity:1; }
+  50% { opacity:0.5; }
+}
+
+/* ── FADE OVERLAY ── */
+#fade-overlay {
+  position:fixed; inset:0; z-index:100;
+  background:#fff; opacity:0; pointer-events:none;
+  transition:opacity 0.8s ease;
+}
+#fade-overlay.active { opacity:1; pointer-events:all; }
+#fade-overlay.dark { background:#000; }
+
+/* ── COMPLETION ── */
+#completion-overlay {
+  position:fixed; inset:0; z-index:12;
+  background:rgba(0,0,0,0.95);
+  display:flex; align-items:center; justify-content:center;
+  opacity:0; pointer-events:none; transition:opacity 0.6s;
+}
+#completion-overlay.show { opacity:1; pointer-events:all; }
+.completion-content {
+  text-align:center; color:rgba(255,255,255,0.9);
+  max-width:600px;
+}
+.completion-title {
+  font-size:1.4rem; font-weight:200; letter-spacing:0.2em;
+  margin-bottom:20px;
+}
+.completion-stat {
+  display:inline-block; margin:0 20px;
+}
+.stat-num {
+  font-size:2rem; font-weight:200; color:#fff;
+}
+.stat-label {
+  font-size:0.6rem; letter-spacing:0.15em; color:rgba(255,255,255,0.6);
+  margin-top:4px;
+}
+.completion-poem {
+  font-size:0.9rem; font-weight:200; line-height:2;
+  margin:30px 0; letter-spacing:0.05em; font-style:italic;
+}
+#stat-chart {
+  display:flex; align-items:flex-end; justify-content:center;
+  gap:3px; margin:20px 0; height:40px;
+}
+.chart-bar {
+  width:6px; background:rgba(255,255,255,0.4); border-radius:2px;
+}
+.completion-actions {
+  margin-top:30px; display:flex; gap:20px; justify-content:center;
+}
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+<video id="camera-video"></video>
+<canvas id="hand-canvas"></canvas>
+
+<div id="ui">
+  <div id="header">
+    <div class="header-left">
+      <div class="header-title">泪与息</div>
+      <div class="header-sub">情绪疗愈体验</div>
+    </div>
+    <div class="act-progress">
+      <div id="node1" class="act-node active"></div>
+      <div id="node2" class="act-node"></div>
+      <div id="node3" class="act-node"></div>
+      <div id="node4" class="act-node"></div>
+    </div>
+    <div class="header-right">
+      <button id="sound-btn" class="icon-btn">
+        <svg viewBox="0 0 24 24">
+          <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-4.5-4.5v9a4.5 4.5 0 0 0 4.5-4.5z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div id="left-panel">
+    <div class="hint-box">
+      <div class="hint-title">☆ 互动提示</div>
+      <div id="hint1" class="hint-item"></div>
+      <div id="hint2" class="hint-item"></div>
+      <div id="hint3" class="hint-item"></div>
+    </div>
+    <div class="quote-box">
+      <div id="quote-text" class="quote-text"></div>
+      <div class="quote-src"></div>
+    </div>
+  </div>
+
+  <div id="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">摄像头</div>
+      <div id="cam-preview">
+        <video id="cam-preview-video"></video>
+        <div class="cam-status">
+          <span class="cam-dot"></span><span id="cam-status-text">就绪</span>
+        </div>
+      </div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">环境</div>
+      <div class="slider-row">
+        <div class="slider-name">
+          <span>雾气强度</span>
+          <span id="fog-val">50</span>
+        </div>
+        <input id="fog-slider" type="range" min="0" max="100" value="50">
+      </div>
+      <div class="slider-row">
+        <div class="slider-name">
+          <span>音量</span>
+          <span id="vol-val">50</span>
+        </div>
+        <input id="vol-slider" type="range" min="0" max="100" value="50">
+      </div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">收集</div>
+      <div id="tear-collector">
+        <div class="collector-vessel">
+          <div class="collector-fill"></div>
+          <div class="collector-drop"></div>
+        </div>
+        <div class="collector-count" id="collector-count">0</div>
+        <div class="collector-unit">泪水收集数</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="breath-guide">
+    <div id="breath-label">呼吸节奏</div>
+    <div id="breath-timer">4-2-4-2</div>
+  </div>
+
+  <div id="bottom-bar">
+    <button id="main-btn" class="act-btn primary"></button>
+    <div id="bottom-hint" class="bottom-hint"></div>
+  </div>
+</div>
+
+<div id="fade-overlay"></div>
+
+<div id="completion-overlay">
+  <div class="completion-content">
+    <div class="completion-title">✦ 疗愈记录 ✦</div>
+    <div style="margin:20px 0;">
+      <div class="completion-stat">
+        <div class="stat-num" id="stat1">0</div>
+        <div class="stat-label">泪水收集</div>
+      </div>
+      <div class="completion-stat">
+        <div class="stat-num" id="stat2">0</div>
+        <div class="stat-label">呼吸循环</div>
+      </div>
+      <div class="completion-stat">
+        <div class="stat-num" id="stat3">0</div>
+        <div class="stat-label">秒深呼吸</div>
+      </div>
+      <div class="completion-stat">
+        <div class="stat-num" id="stat4">0%</div>
+        <div class="stat-label">放松度</div>
+      </div>
+    </div>
+    <div class="completion-poem" id="stat-poem"></div>
+    <div id="stat-chart"></div>
+    <div class="completion-actions">
+      <button id="main-btn" class="act-btn primary"></button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════
+//  CONSTANTS & STATE
+// ═══════════════════════════════════════
+const W=window.innerWidth, H=window.innerHeight;
+const CONTENT_LEFT=180, CONTENT_RIGHT=200, CONTENT_TOP=70, CONTENT_BOTTOM=60;
+const TOTAL_CYCLES=5;
+
+let canvas=document.getElementById('canvas'),
+    ctx=canvas.getContext('2d'),
+    handCanvas=document.getElementById('hand-canvas'),
+    handCtx=handCanvas.getContext('2d');
+
+canvas.width=handCanvas.width=W;
+canvas.height=handCanvas.height=H;
+
+let act=1, frame=0, collectedCount=0, fistCount=0, breathCount=0;
+let triggeredPoems=[], act2TouhedCount=0;
+
+// ═══════════════════════════════════════
+//  INITIALIZATION & SETUP
+// ═══════════════════════════════════════
+
+// Load MediaPipe Hands solution
+let hands, handLandmarks=null, handedness=null;
+
+async function initMediaPipe() {
+  try {
+    hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+    hands.setOptions({
+      maxNumHands: 2,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+    hands.onResults(onHandsResults);
+    
+    const camera = new Camera(document.getElementById('camera-video'), {
+      onFrame: async () => { await hands.send({image: document.getElementById('camera-video')}); },
+      width: 640,
+      height: 480
+    });
+    camera.start();
+    document.querySelector('.cam-dot').classList.add('live');
+  } catch (error) {
+    console.error('MediaPipe initialization error:', error);
+  }
+}
+
+function onHandsResults(results) {
+  handLandmarks = results.landmarks;
+  handedness = results.handedness;
+  
+  handCtx.clearRect(0, 0, handCanvas.width, handCanvas.height);
+  if (handLandmarks && handLandmarks.length > 0) {
+    drawHands();
+  }
+}
+
+function drawHands() {
+  // Placeholder for hand drawing
+}
+
+// Audio Context
+let audioCtx;
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+}
+
+function startAct1Music() {}
+function startAct2Music() {}
+function stopAllMusic() {}
+function stopAmbientRain() {}
+function startAmbientRain() {}
+function bowlTone(phase) {}
+
+// Drawing functions
+function initAct1() {}
+function drawAct1() {
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, H);
+}
+
+function initAct2() {}
+function drawAct2() {
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, H);
+}
+
+let bPhaseIdx=0, bPhaseFrame=0, breathParticles=[], lastBPhaseIdx=-1;
+function updateAct3() {}
+function drawAct3() {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+}
+
+function updateCollector() {
+  document.getElementById('collector-count').textContent = collectedCount;
+}
+
+function showAct4() {
+  const poems = ['泪水见证，每一次你选择继续'];
+  const poem = poems[0];
+  
+  document.getElementById('stat1').textContent = collectedCount;
+  document.getElementById('stat-poem').textContent = `"${poem}"`;
+  document.getElementById('stat2').textContent = breathCount;
+  document.getElementById('stat3').textContent = Math.floor(breathCount*8);
+  document.getElementById('stat4').textContent = Math.min(100, fistCount*20)+'%';
+
+  const chart = document.getElementById('stat-chart');
+  chart.innerHTML='';
+  for(let i=0;i<10;i++) {
+    const bar=document.createElement('div');
+    bar.className='chart-bar';
+    const h = Math.max(5, 28 - i*2.2 + Math.sin(i)*3);
+    bar.style.height=h+'px';
+    chart.appendChild(bar);
+  }
+
+  document.getElementById('completion-overlay').classList.add('show');
+}
+
+// UI Updates
+const quotesByAct = {
+  1: { text:'当身体不是我们「拥有」的东西，\n而是我们「是」的东西。', src:'— 梅洛·庞蒂' },
+  2: { text:'当语言走到尽头，\n身体开始说话。', src:'— 梅洛·庞蒂' },
+  3: { text:'感知不是思想对世界的投射，\n而是身体与世界的相遇。', src:'— 梅洛·庞蒂' },
+  4: { text:'身体是一部始终在说话的诗，\n只是我们很少聆听。', src:'— 梅洛·庞蒂' },
+};
+const hintsByAct = {
+  1: ['在空中挥手擦开水雾','触碰诗句，感受文字','点击底部按钮继续'],
+  2: ['指尖触碰「泪」字收集','张开手掌，泪字聚集','握拳驱散所有泪字'],
+  3: ['跟随光球呼吸节奏','吸气4秒，屏息2秒','呼气4秒，放松2秒'],
+  4: ['本次疗愈记录','点击「回到诗里」重新体验','感谢你的信任与勇气'],
+};
+
+function updateUIForAct(a) {
+  [1,2,3,4].forEach(i=>{
+    const n=document.getElementById('node'+i);
+    n.className='act-node'+(i<a?' done':i===a?' active':'');
+  });
+  const q=quotesByAct[a];
+  document.getElementById('quote-text').textContent=q.text;
+  document.querySelector('.quote-src').textContent=q.src;
+  const h=hintsByAct[a];
+  ['hint1','hint2','hint3'].forEach((id,i)=>{
+    document.getElementById(id).innerHTML=`<span class="hint-icon">✦</span>${h[i]||''}`;
+  });
+  document.getElementById('breath-guide').style.display = a===3 ? 'block' : 'none';
+  document.getElementById('sidebar').style.display = a===4 ? 'none' : '';
+  document.getElementById('left-panel').style.display = a===4 ? 'none' : '';
+  
+  const header=document.getElementById('header');
+  const bottomBar=document.getElementById('bottom-bar');
+  const soundBtn=document.getElementById('sound-btn');
+  if (a===3) {
+    header.style.background='rgba(0,0,0,0.85)';
+    header.style.borderBottomColor='rgba(255,255,255,0.08)';
+    header.style.color='rgba(255,255,255,0.6)';
+    bottomBar.style.background='rgba(0,0,0,0.85)';
+    bottomBar.style.borderTopColor='rgba(255,255,255,0.08)';
+    document.querySelector('.header-title').style.color='rgba(255,255,255,0.7)';
+    document.querySelector('.header-sub').style.color='rgba(255,255,255,0.3)';
+    soundBtn.style.borderColor='rgba(255,255,255,0.15)';
+    soundBtn.querySelector('svg').style.stroke='rgba(255,255,255,0.6)';
+    document.getElementById('bottom-hint').style.color='rgba(255,255,255,0.3)';
+  } else {
+    header.style.background='rgba(255,255,255,0.92)';
+    header.style.borderBottomColor='var(--faint)';
+    header.style.color='';
+    bottomBar.style.background='rgba(255,255,255,0.92)';
+    bottomBar.style.borderTopColor='var(--faint)';
+    document.querySelector('.header-title').style.color='var(--ink)';
+    document.querySelector('.header-sub').style.color='var(--dim)';
+    soundBtn.style.borderColor='var(--faint)';
+    soundBtn.querySelector('svg').style.stroke='var(--ink)';
+    document.getElementById('bottom-hint').style.color='var(--dim)';
+  }
+}
+
+const btnLabels = {
+  1:['听听身体在说什么？', '用手指擦开水雾，听听身体想说什么'],
+  2:['开始呼吸冥想 →', `收集泪水，感受情绪的流动`],
+  3:['查看疗愈印记 →', '跟随呼吸节奏，完成 '+TOTAL_CYCLES+' 次循环'],
+  4:['回到诗里', '疗愈完成，感谢你的信任'],
+};
+
+function updateBtn() {
+  const [bl, bh]=btnLabels[act]||['继续',''];
+  document.getElementById('main-btn').textContent=bl;
+  document.getElementById('bottom-hint').textContent=bh;
+}
+
+async function handleMainBtn() {
+  initAudio();
+  if (act===1) await goToAct2();
+  else if (act===2) await goToAct3();
+  else if (act===3) goToAct4();
+  else if (act===4) returnToAct1();
+}
+
+async function fade(toDark, dur=800) {
+  const ov=document.getElementById('fade-overlay');
+  ov.classList.toggle('dark', toDark);
+  ov.classList.add('active');
+  await new Promise(r=>setTimeout(r,dur));
+}
+
+async function unfade(dur=800) {
+  const ov=document.getElementById('fade-overlay');
+  ov.classList.remove('active');
+  await new Promise(r=>setTimeout(r,dur));
+}
+
+async function goToAct2() {
+  await fade(false, 700);
+  act=2; initAct2();
+  startAct2Music(); startAmbientRain();
+  updateUIForAct(2); updateBtn();
+  await unfade(700);
+}
+
+async function goToAct3() {
+  await fade(true, 800);
+  act=3; bPhaseIdx=0; bPhaseFrame=0; breathCount=0;
+  breathParticles=[]; lastBPhaseIdx=-1;
+  stopAllMusic(); stopAmbientRain();
+  updateUIForAct(3); updateBtn();
+  await unfade(800);
+  bowlTone(0);
+}
+
+async function goToAct4() {
+  if (act===4) return;
+  await fade(true, 800);
+  act=4;
+  updateUIForAct(4); updateBtn();
+  await unfade(600);
+  showAct4();
+}
+
+async function returnToAct1() {
+  document.getElementById('completion-overlay').classList.remove('show');
+  await fade(false, 800);
+  act=1; collectedCount=0; fistCount=0; breathCount=0;
+  triggeredPoems=[]; act2TouhedCount=0;
+  updateCollector();
+  stopAllMusic(); stopAmbientRain();
+  initAct1(); updateUIForAct(1); updateBtn();
+  await unfade(700);
+  startAct1Music();
+}
+
+// Main loop
+function loop() {
+  frame++;
+  if (act===1) drawAct1();
+  else if (act===2) drawAct2();
+  else if (act===3) { updateAct3(); drawAct3(); }
+  else if (act===4) {
+    ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  }
+  requestAnimationFrame(loop);
+}
+
+// Init
+async function init() {
+  initAct1();
+  updateUIForAct(1); updateBtn();
+  await initMediaPipe();
+  loop();
+}
+
+// Music start
+let musicStarted = false;
+function maybeStartMusic() {
+  if (musicStarted) return;
+  musicStarted = true;
+  initAudio();
+  if (act===1) startAct1Music();
+}
+document.addEventListener('click', maybeStartMusic, { once:true });
+document.addEventListener('touchstart', maybeStartMusic, { once:true });
+
+// Button handlers
+document.getElementById('main-btn').addEventListener('click', handleMainBtn);
+document.getElementById('sound-btn').addEventListener('click', function() {
+  this.classList.toggle('muted');
+});
+
+// Sliders
+document.getElementById('fog-slider').addEventListener('input', function() {
+  document.getElementById('fog-val').textContent = this.value;
+});
+document.getElementById('vol-slider').addEventListener('input', function() {
+  document.getElementById('vol-val').textContent = this.value;
+});
+
+// Start
+window.addEventListener('load', init);
+</script>
+</body>
+</html>
